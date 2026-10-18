@@ -403,6 +403,19 @@ comprobar	pass	23s	https://github.com/diegoalegil/nginx-para-todos/actions/runs/
 
 **Avisos `Deprecation Warning` al generar el blog.** Vienen del tema minima 2.5.2, que usa `@import` y funciones de Sass como `lighten()` que las versiones nuevas de Sass marcan como obsoletas. Son avisos del tema, no errores, y el blog se genera bien.
 
+**Una entrada no salía en el blog.** Al generar el blog después de escribir las entradas, Jekyll avisó de esto y solo creó una de las dos:
+
+```text
+          Skipping: _posts/2026-10-18-diez-de-diez.markdown has a future date
+```
+
+La entrada tenía en el front matter `date: 2026-10-18 19:45:00 +0100` y generé el blog a las 19:44:45. Jekyll no publica entradas con fecha futura. Al volver a generarlo pasadas las 19:45 ya salen las dos:
+
+```text
+$ ls blog-jekyll/_site/futbol/2026/10/18/
+diez-de-diez.html          vuelvo-a-ver-al-barca.html
+```
+
 ## Repositorio remoto
 
 https://github.com/diegoalegil/nginx-para-todos

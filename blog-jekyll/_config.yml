@@ -1,0 +1,15 @@
+# Configuración del blog. Si cambio algo aquí hay que volver a generar el blog.
+title: Mi temporada culé
+description: >-
+  Blog personal donde cuento cómo estoy viviendo la temporada 2026-2027 del Barça.
+lang: es
+baseurl: ""
+url: "http://blog.local:8080"
+github_username: diegoalegil
+
+minima:
+  date_format: "%d/%m/%Y"
+
+theme: minima
+plugins:
+  - jekyll-feed

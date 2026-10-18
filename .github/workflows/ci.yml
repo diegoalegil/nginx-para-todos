@@ -21,13 +21,18 @@ jobs:
           uv sync --locked
           uv run zensical build
 
+      - name: Generar el blog con Jekyll
+        run: docker compose run --rm jekyll
+
       - name: Comprobar la configuración de NGINX
         run: docker compose run --rm nginx nginx -t
 
-      - name: Arrancar NGINX y probar la documentación
+      - name: Arrancar NGINX y probar las dos webs
         run: |
           docker compose up -d
           sleep 2
-          curl -fsS -o /dev/null http://localhost:8080/
-          curl -sI http://localhost:8080/markdown | grep -i "^location: /markdown/"
+          curl -fsS -H "Host: docs.local" http://localhost:8080/ | grep "<title>Get started - Documentation</title>"
+          curl -fsS -H "Host: blog.local" http://localhost:8080/ | grep "<title>Mi temporada culé"
+          curl -fsS http://localhost:8080/ | grep "<title>NGINX para todos</title>"
+          curl -sI -H "Host: docs.local" http://localhost:8080/markdown | grep -i "^location: /markdown/"
           docker compose down

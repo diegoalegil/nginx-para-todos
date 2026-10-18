@@ -31,7 +31,33 @@ flowchart LR
     nginx --> root
 ```
 
+En la fase 2 el mismo NGINX sirve las dos webs en el mismo puerto. Elige cuál dar según el nombre que llega en la cabecera `Host` de la petición (virtual hosts por nombre):
+
+```mermaid
+flowchart LR
+    nav["Navegador"] -->|"docs.local o blog.local"| hosts["/etc/hosts: 127.0.0.1"]
+    hosts -->|"puerto 8080, cabecera Host"| nginx["NGINX 1.30 en Docker"]
+    nginx -->|"server_name docs.local"| docs["/var/www/docs (Zensical)"]
+    nginx -->|"server_name blog.local"| blog["/var/www/blog (Jekyll)"]
+    nginx -->|"otro nombre: default_server"| portada["/var/www/portada"]
+```
+
 ## Instalación
+
+### Puesta en marcha rápida
+
+Para arrancar el proyecto desde cero (con Docker y uv instalados):
+
+```bash
+sudo sh -c 'printf "127.0.0.1 docs.local blog.local\n::1 docs.local blog.local\n" >> /etc/hosts'
+cd docs-zensical && uv sync --locked && uv run zensical build && cd ..
+docker compose run --rm jekyll
+docker compose up -d
+```
+
+Después: http://docs.local:8080 (documentación), http://blog.local:8080 (blog) y http://localhost:8080 (portada). Para pararlo, `docker compose down`.
+
+Debajo explico cada paso tal y como lo hice.
 
 ### Herramientas
 
@@ -126,6 +152,85 @@ $ ls site
 
 Los avisos de `anchor does not exist` están explicados en [Problemas encontrados](#problemas-encontrados-y-solución).
 
+### Crear el blog con Jekyll
+
+Jekyll está hecho en Ruby. Para no instalar Ruby en el Mac lo uso dentro de un contenedor con la imagen oficial `ruby:3.4`. Lo añado a `compose.yaml` como un segundo servicio:
+
+```yaml
+  # solo para crear y generar el blog, no se queda encendido
+  jekyll:
+    image: ruby:3.4
+    working_dir: /srv/jekyll
+    volumes:
+      - ./blog-jekyll:/srv/jekyll
+      # las gemas se guardan aquí para no descargarlas cada vez
+      - gemas:/usr/local/bundle
+    environment:
+      JEKYLL_ENV: production
+    command: sh -c "bundle install && bundle exec jekyll build"
+    profiles: ["herramientas"]
+
+volumes:
+  gemas:
+```
+
+- `profiles: ["herramientas"]` hace que no arranque con `docker compose up`. Solo se usa cuando lo llamo con `docker compose run`.
+- El volumen `gemas` guarda las gemas de Ruby para no descargarlas cada vez.
+- `JEKYLL_ENV: production` genera el blog en modo producción.
+
+Creo el blog con Jekyll 4.4.1 dentro del contenedor. `jekyll new` usa el tema minima por defecto:
+
+```text
+$ mkdir blog-jekyll
+$ docker compose run --rm jekyll sh -c "gem install jekyll -v 4.4.1 && jekyll new . --force"
+[...]
+Successfully installed jekyll-4.4.1
+29 gems installed
+[...]
+  Bundler: Bundle complete! 7 Gemfile dependencies, 39 gems now installed.
+  Bundler: Use `bundle info [gemname]` to see where a bundled gem is installed.
+New jekyll site installed in /srv/jekyll.
+
+$ ls -a blog-jekyll
+_config.yml    _posts         .              ..             .gitignore     404.html       about.markdown Gemfile        Gemfile.lock   index.markdown
+```
+
+Genero el blog. Sin más argumentos el contenedor ejecuta su `command`, que instala las gemas y hace `jekyll build`:
+
+```text
+$ docker compose run --rm jekyll
+Bundle complete! 7 Gemfile dependencies, 39 gems now installed.
+Use `bundle info [gemname]` to see where a bundled gem is installed.
+Configuration file: /srv/jekyll/_config.yml
+            Source: /srv/jekyll
+       Destination: /srv/jekyll/_site
+ Incremental build: disabled. Enable with --incremental
+      Generating...
+       Jekyll Feed: Generating feed for posts
+Deprecation Warning [import]: Sass @import rules are deprecated and will be removed in Dart Sass 3.0.0.
+[...]
+Warning: 6 repetitive deprecation warnings omitted.
+Run in verbose mode to see all warnings.
+                    done in 0.193 seconds.
+ Auto-regeneration: disabled. Use --watch to enable.
+
+$ ls blog-jekyll/_site
+404.html   about      assets     feed.xml   index.html jekyll
+```
+
+### Nombres en /etc/hosts
+
+`docs.local` y `blog.local` no existen en ningún DNS, así que los apunto a mi propio Mac en `/etc/hosts`. Pongo también la línea de IPv6 (`::1`) para que macOS no tarde buscando los nombres `.local` en la red local.
+
+```text
+$ sudo sh -c 'printf "127.0.0.1 docs.local blog.local\n::1 docs.local blog.local\n" >> /etc/hosts'
+Password:
+
+$ tail -2 /etc/hosts
+127.0.0.1 docs.local blog.local
+::1 docs.local blog.local
+```
+
 ## Configuración
 
 ### Estructura del proyecto
@@ -136,6 +241,12 @@ nginx-para-todos/
 ├── .gitignore
 ├── README.md
 ├── compose.yaml
+├── blog-jekyll/            el blog
+│   ├── _config.yml
+│   ├── _posts/             las entradas
+│   ├── Gemfile
+│   ├── Gemfile.lock
+│   └── _site/              web generada, no se versiona
 ├── docs-zensical/          copia de monium/gitanddocs (commit 3e7a2df)
 │   ├── docs/               los textos en Markdown
 │   ├── pyproject.toml
@@ -143,8 +254,12 @@ nginx-para-todos/
 │   ├── zensical.toml
 │   └── site/               web generada, no se versiona
 └── nginx/
-    └── conf.d/
-        └── docs.conf
+    ├── conf.d/
+    │   ├── blog.conf
+    │   ├── default.conf
+    │   └── docs.conf
+    └── portada/
+        └── index.html
 ```
 
 ### site_url de Zensical
@@ -235,6 +350,144 @@ $ docker compose exec nginx nginx -s reload
 
 `.github/workflows/ci.yml` se ejecuta en cada PR y en cada push a `main`. Genera la documentación, revisa la configuración con `nginx -t`, arranca NGINX y comprueba que responde y que la redirección mantiene el puerto.
 
+En la fase 2 la amplío: también genera el blog con el servicio `jekyll` y prueba las tres respuestas de NGINX cambiando la cabecera `Host` (la documentación con `docs.local`, el blog con `blog.local` y la portada sin nombre), además de la redirección de `docs.local`.
+
+### El blog
+
+El blog se llama "Mi temporada culé" y trata de cómo estoy viviendo la temporada del Barça. Uso el tema minima, que es el que trae Jekyll.
+
+`blog-jekyll/_config.yml`:
+
+```yaml
+# Configuración del blog. Si cambio algo aquí hay que volver a generar el blog.
+title: Mi temporada culé
+description: >-
+  Blog personal donde cuento cómo estoy viviendo la temporada 2026-2027 del Barça.
+lang: es
+baseurl: ""
+url: "http://blog.local:8080"
+github_username: diegoalegil
+
+minima:
+  date_format: "%d/%m/%Y"
+
+theme: minima
+plugins:
+  - jekyll-feed
+```
+
+- `url` es la dirección donde va a estar el blog. Jekyll la usa en el feed y en las etiquetas para buscadores.
+- `lang: es` pone el idioma de las páginas en español.
+- `date_format` muestra las fechas como 18/10/2026.
+
+Cambios en el contenido:
+
+- Borro la entrada de ejemplo `welcome-to-jekyll` con `git rm`.
+- Escribo dos entradas en `_posts/`: `2026-10-18-vuelvo-a-ver-al-barca.markdown` y `2026-10-18-diez-de-diez.markdown`. El nombre tiene que empezar por la fecha, si no Jekyll no las toma como entradas.
+- Paso a español la página "Sobre mí" (`about.markdown`, ahora en `/sobre-mi/`), el título de la lista de entradas (`list_title` en `index.markdown`) y la página 404.
+
+### Dos webs en el mismo NGINX
+
+Cada web tiene su bloque `server` en un archivo de `nginx/conf.d/`. Todos escuchan en el puerto 80 del contenedor y NGINX elige uno comparando la cabecera `Host` de la petición con el `server_name`.
+
+`nginx/conf.d/docs.conf` cambia `server_name localhost` por `docs.local` y tiene su propio log:
+
+```nginx
+# Documentación de gitanddocs generada con Zensical
+server {
+    listen 80;
+    server_name docs.local;
+
+    root /var/www/docs;
+    index index.html;
+    absolute_redirect off;
+
+    access_log /var/log/nginx/docs.access.log;
+    error_log /var/log/nginx/docs.error.log;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    error_page 404 /404.html;
+}
+```
+
+`nginx/conf.d/blog.conf` es igual pero con otro nombre, otra carpeta y otros logs:
+
+```nginx
+# Blog personal generado con Jekyll
+server {
+    listen 80;
+    server_name blog.local;
+
+    root /var/www/blog;
+    index index.html;
+    absolute_redirect off;
+
+    access_log /var/log/nginx/blog.access.log;
+    error_log /var/log/nginx/blog.error.log;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    error_page 404 /404.html;
+}
+```
+
+`nginx/conf.d/default.conf` es el servidor por defecto. `default_server` hace que responda él cuando el nombre no coincide con ningún `server_name`, por ejemplo al entrar por `localhost` o por la IP. Sirve una portada con enlaces a las dos webs (`nginx/portada/index.html`):
+
+```nginx
+# Servidor por defecto: responde cuando el nombre no es docs.local ni blog.local
+server {
+    listen 80 default_server;
+    server_name _;
+
+    root /var/www/portada;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
+```
+
+En `compose.yaml` comparto con el contenedor las dos carpetas nuevas:
+
+```yaml
+      # el blog que genera jekyll
+      - ./blog-jekyll/_site:/var/www/blog:ro
+      # la portada del servidor por defecto
+      - ./nginx/portada:/var/www/portada:ro
+```
+
+Y el `site_url` de la documentación pasa a ser su nueva dirección:
+
+```toml
+site_url = "http://docs.local:8080/"
+```
+
+Vuelvo a generar la documentación y recreo el contenedor para que monte las carpetas nuevas:
+
+```text
+$ cd docs-zensical
+$ uv run zensical build
+Build started
+[...]
+4 issues found
+Build finished in 0.20s
+$ cd ..
+
+$ docker compose up -d
+[+] up 1/1
+ ✔ Container nginx-para-todos Started
+
+$ docker compose exec nginx nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+```
+
 ## Comprobación
 
 ### Fase 1
@@ -289,6 +542,70 @@ $ gh pr checks 4
 comprobar	pass	23s	https://github.com/diegoalegil/nginx-para-todos/actions/runs/39151396787/job/117745610815
 ```
 
+### Fase 2
+
+En la fase 2 la documentación ya no está en `localhost`, sino en `docs.local`. Cada web responde por su nombre con `200 OK`:
+
+```text
+$ curl -I http://docs.local:8080/
+HTTP/1.1 200 OK
+Server: nginx/1.30.6
+Date: Sun, 18 Oct 2026 20:51:12 GMT
+Content-Type: text/html
+Content-Length: 40776
+Last-Modified: Sun, 18 Oct 2026 20:50:50 GMT
+Connection: keep-alive
+ETag: "6ad5312a-9f48"
+Accept-Ranges: bytes
+
+$ curl -I http://blog.local:8080/
+HTTP/1.1 200 OK
+Server: nginx/1.30.6
+Date: Sun, 18 Oct 2026 20:51:16 GMT
+Content-Type: text/html
+Content-Length: 4149
+Last-Modified: Sun, 18 Oct 2026 18:46:06 GMT
+Connection: keep-alive
+ETag: "6ad513ee-1035"
+Accept-Ranges: bytes
+```
+
+La misma IP y el mismo puerto dan una web distinta según la cabecera `Host`. Con `-H` la pongo a mano y saco el título de la página que responde:
+
+```text
+$ curl -s -H "Host: docs.local" http://127.0.0.1:8080/ | grep -o "<title>[^<]*</title>" | head -1
+<title>Get started - Documentation</title>
+
+$ curl -s -H "Host: blog.local" http://127.0.0.1:8080/ | grep -o "<title>[^<]*</title>" | head -1
+<title>Mi temporada culé | Blog personal donde cuento cómo estoy viviendo la temporada 2026-2027 del Barça.</title>
+
+$ curl -s -H "Host: otro.local" http://127.0.0.1:8080/ | grep -o "<title>[^<]*</title>" | head -1
+<title>NGINX para todos</title>
+```
+
+Con un nombre que no está configurado (`otro.local`) responde el servidor por defecto con la portada.
+
+Cada web escribe en su propio log. Las peticiones al blog solo aparecen en `blog.access.log`. La IP `192.168.65.1` es la de la red interna de Docker Desktop, por donde llegan al contenedor las peticiones del Mac:
+
+```text
+$ docker compose exec nginx tail -n 3 /var/log/nginx/blog.access.log
+192.168.65.1 - - [18/Oct/2026:20:51:16 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/8.7.1"
+192.168.65.1 - - [18/Oct/2026:20:51:23 +0000] "GET / HTTP/1.1" 200 4149 "-" "curl/8.7.1"
+```
+
+En el navegador, http://docs.local:8080 muestra la documentación, http://blog.local:8080 el blog con sus dos entradas y http://localhost:8080 la portada con los enlaces a las dos.
+
+La CI pasa en la PR de la fase 2:
+
+```text
+$ gh pr checks --watch
+All checks were successful
+0 cancelled, 0 failing, 1 successful, 0 skipped, and 0 pending checks
+
+   NAME                         DESCRIPTION  ELAPSED  URL
+✓  CI/comprobar (pull_request)               55s      https://github.com/diegoalegil/nginx-para-todos/actions/run...
+```
+
 ## Problemas encontrados y solución
 
 **Avisos `anchor does not exist` al generar la documentación.** `zensical build` avisa de 4 enlaces del índice de `docs/index.md` que apuntan a apartados que no existen. Vienen así en el repo original y la web se genera igual. No los toco porque la documentación es de gitanddocs, no mía.
@@ -299,28 +616,46 @@ comprobar	pass	23s	https://github.com/diegoalegil/nginx-para-todos/actions/runs/
 
 **El sitemap apuntaba a example.com.** El `site_url` de `zensical.toml` venía con `https://www.example.com/`. Lo cambio por `http://localhost:8080/`.
 
+**`no such service: jekyll`.** Me salió la primera vez que lancé `docker compose run --rm jekyll`, porque el servicio `jekyll` todavía no estaba guardado en `compose.yaml`. Al añadirlo, el mismo comando funciona.
+
+**Avisos `Deprecation Warning` al generar el blog.** Vienen del tema minima 2.5.2, que usa `@import` y funciones de Sass como `lighten()` que las versiones nuevas de Sass marcan como obsoletas. Son avisos del tema, no errores, y el blog se genera bien.
+
+**Una entrada no salía en el blog.** Al generar el blog después de escribir las entradas, Jekyll avisó de esto y solo creó una de las dos:
+
+```text
+          Skipping: _posts/2026-10-18-diez-de-diez.markdown has a future date
+```
+
+La entrada tenía en el front matter `date: 2026-10-18 19:45:00 +0100` y generé el blog a las 19:44:45. Jekyll no publica entradas con fecha futura. Al volver a generarlo pasadas las 19:45 ya salen las dos:
+
+```text
+$ ls blog-jekyll/_site/futbol/2026/10/18/
+diez-de-diez.html          vuelvo-a-ver-al-barca.html
+```
+
 ## Repositorio remoto
 
 https://github.com/diegoalegil/nginx-para-todos
 
 - Issues: [#1 Fase 1](https://github.com/diegoalegil/nginx-para-todos/issues/1), [#2 Fase 2](https://github.com/diegoalegil/nginx-para-todos/issues/2) y [#3 CI](https://github.com/diegoalegil/nginx-para-todos/issues/3).
-- Cada fase se hace en su rama (`fase-1`, `fase-2`) y entra en `main` con una PR. Fase 1: [PR #4](https://github.com/diegoalegil/nginx-para-todos/pull/4).
+- Cada fase se hace en su rama (`fase-1`, `fase-2`) y entra en `main` con una PR que cierra sus issues: fase 1 en la [PR #4](https://github.com/diegoalegil/nginx-para-todos/pull/4) y fase 2 en la [PR #5](https://github.com/diegoalegil/nginx-para-todos/pull/5). Las junto en local con `git merge --no-ff` para que en el historial se vea cada rama.
+- Etiquetas: `v0.1.0` al terminar la fase 1 y `v1.0.0` con la práctica completa.
 
 ## Relación curricular
 
 **RA1. Implantar arquitecturas web.**
 
-- b) Explico cómo responde NGINX a las peticiones HTTP: códigos 200, 301 y 404 y la cabecera `Location`.
-- c) Instalo y configuro NGINX en un contenedor con Docker Compose.
-- f) Pruebo el servidor con `curl`, con `nginx -t` y con la CI.
-- g) Describo la estructura de la web generada (`index.html`, `assets`, `404.html`, `sitemap.xml`).
-- h) Indico lo que hace falta para desplegar: Docker, el puerto 8080 libre y la web generada antes de arrancar.
+- b) Explico cómo responde NGINX a las peticiones HTTP: códigos 200, 301 y 404, la cabecera `Location` y cómo usa la cabecera `Host` para elegir la web.
+- c) Instalo y configuro NGINX en un contenedor con Docker Compose, con un bloque `server` por web y un servidor por defecto.
+- f) Pruebo el servidor con `curl` (también cambiando el `Host`), con `nginx -t`, con los logs de cada web y con la CI.
+- g) Describo la estructura de las dos webs generadas (`index.html`, `assets`, `404.html`, `sitemap.xml`, `feed.xml`, las entradas del blog).
+- h) Indico lo que hace falta para desplegar: Docker, el puerto 8080 libre, los nombres en `/etc/hosts` y las webs generadas antes de arrancar.
 - i) Documento la instalación y la configuración en este README.
 
 **RA6. Elaborar la documentación de la aplicación web.**
 
-- a) Uso Zensical como generador de documentación.
+- a) Uso dos generadores de webs estáticas: Zensical para la documentación y Jekyll para el blog.
 - b) Genero la documentación de gitanddocs con Zensical.
 - c) Uso varios formatos: Markdown, HTML, TOML, YAML y diagramas Mermaid.
-- d) Uso GitHub con issues y pull requests.
-- h) Uso GitHub Actions para la integración continua.
+- d) Uso GitHub con issues, ramas y pull requests.
+- h) Uso GitHub Actions para la integración continua: genera las dos webs y prueba NGINX en cada PR.

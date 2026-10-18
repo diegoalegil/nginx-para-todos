@@ -44,6 +44,21 @@ flowchart LR
 
 ## Instalación
 
+### Puesta en marcha rápida
+
+Para arrancar el proyecto desde cero (con Docker y uv instalados):
+
+```bash
+sudo sh -c 'printf "127.0.0.1 docs.local blog.local\n::1 docs.local blog.local\n" >> /etc/hosts'
+cd docs-zensical && uv sync --locked && uv run zensical build && cd ..
+docker compose run --rm jekyll
+docker compose up -d
+```
+
+Después: http://docs.local:8080 (documentación), http://blog.local:8080 (blog) y http://localhost:8080 (portada). Para pararlo, `docker compose down`.
+
+Debajo explico cada paso tal y como lo hice.
+
 ### Herramientas
 
 En el Mac instalo Docker Desktop y uv con Homebrew:
@@ -580,6 +595,17 @@ $ docker compose exec nginx tail -n 3 /var/log/nginx/blog.access.log
 
 En el navegador, http://docs.local:8080 muestra la documentación, http://blog.local:8080 el blog con sus dos entradas y http://localhost:8080 la portada con los enlaces a las dos.
 
+La CI pasa en la PR de la fase 2:
+
+```text
+$ gh pr checks --watch
+All checks were successful
+0 cancelled, 0 failing, 1 successful, 0 skipped, and 0 pending checks
+
+   NAME                         DESCRIPTION  ELAPSED  URL
+✓  CI/comprobar (pull_request)               55s      https://github.com/diegoalegil/nginx-para-todos/actions/run...
+```
+
 ## Problemas encontrados y solución
 
 **Avisos `anchor does not exist` al generar la documentación.** `zensical build` avisa de 4 enlaces del índice de `docs/index.md` que apuntan a apartados que no existen. Vienen así en el repo original y la web se genera igual. No los toco porque la documentación es de gitanddocs, no mía.
@@ -612,23 +638,24 @@ diez-de-diez.html          vuelvo-a-ver-al-barca.html
 https://github.com/diegoalegil/nginx-para-todos
 
 - Issues: [#1 Fase 1](https://github.com/diegoalegil/nginx-para-todos/issues/1), [#2 Fase 2](https://github.com/diegoalegil/nginx-para-todos/issues/2) y [#3 CI](https://github.com/diegoalegil/nginx-para-todos/issues/3).
-- Cada fase se hace en su rama (`fase-1`, `fase-2`) y entra en `main` con una PR. Fase 1: [PR #4](https://github.com/diegoalegil/nginx-para-todos/pull/4).
+- Cada fase se hace en su rama (`fase-1`, `fase-2`) y entra en `main` con una PR que cierra sus issues: fase 1 en la [PR #4](https://github.com/diegoalegil/nginx-para-todos/pull/4) y fase 2 en la [PR #5](https://github.com/diegoalegil/nginx-para-todos/pull/5). Las junto en local con `git merge --no-ff` para que en el historial se vea cada rama.
+- Etiquetas: `v0.1.0` al terminar la fase 1 y `v1.0.0` con la práctica completa.
 
 ## Relación curricular
 
 **RA1. Implantar arquitecturas web.**
 
-- b) Explico cómo responde NGINX a las peticiones HTTP: códigos 200, 301 y 404 y la cabecera `Location`.
-- c) Instalo y configuro NGINX en un contenedor con Docker Compose.
-- f) Pruebo el servidor con `curl`, con `nginx -t` y con la CI.
-- g) Describo la estructura de la web generada (`index.html`, `assets`, `404.html`, `sitemap.xml`).
-- h) Indico lo que hace falta para desplegar: Docker, el puerto 8080 libre y la web generada antes de arrancar.
+- b) Explico cómo responde NGINX a las peticiones HTTP: códigos 200, 301 y 404, la cabecera `Location` y cómo usa la cabecera `Host` para elegir la web.
+- c) Instalo y configuro NGINX en un contenedor con Docker Compose, con un bloque `server` por web y un servidor por defecto.
+- f) Pruebo el servidor con `curl` (también cambiando el `Host`), con `nginx -t`, con los logs de cada web y con la CI.
+- g) Describo la estructura de las dos webs generadas (`index.html`, `assets`, `404.html`, `sitemap.xml`, `feed.xml`, las entradas del blog).
+- h) Indico lo que hace falta para desplegar: Docker, el puerto 8080 libre, los nombres en `/etc/hosts` y las webs generadas antes de arrancar.
 - i) Documento la instalación y la configuración en este README.
 
 **RA6. Elaborar la documentación de la aplicación web.**
 
-- a) Uso Zensical como generador de documentación.
+- a) Uso dos generadores de webs estáticas: Zensical para la documentación y Jekyll para el blog.
 - b) Genero la documentación de gitanddocs con Zensical.
 - c) Uso varios formatos: Markdown, HTML, TOML, YAML y diagramas Mermaid.
-- d) Uso GitHub con issues y pull requests.
-- h) Uso GitHub Actions para la integración continua.
+- d) Uso GitHub con issues, ramas y pull requests.
+- h) Uso GitHub Actions para la integración continua: genera las dos webs y prueba NGINX en cada PR.

@@ -9,6 +9,10 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       # la web que genera zensical
       - ./docs-zensical/site:/var/www/docs:ro
+      # el blog que genera jekyll
+      - ./blog-jekyll/_site:/var/www/blog:ro
+      # la portada del servidor por defecto
+      - ./nginx/portada:/var/www/portada:ro
 
   # solo para crear y generar el blog, no se queda encendido
   jekyll:

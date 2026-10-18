@@ -31,6 +31,17 @@ flowchart LR
     nginx --> root
 ```
 
+En la fase 2 el mismo NGINX sirve las dos webs en el mismo puerto. Elige cuál dar según el nombre que llega en la cabecera `Host` de la petición (virtual hosts por nombre):
+
+```mermaid
+flowchart LR
+    nav["Navegador"] -->|"docs.local o blog.local"| hosts["/etc/hosts: 127.0.0.1"]
+    hosts -->|"puerto 8080, cabecera Host"| nginx["NGINX 1.30 en Docker"]
+    nginx -->|"server_name docs.local"| docs["/var/www/docs (Zensical)"]
+    nginx -->|"server_name blog.local"| blog["/var/www/blog (Jekyll)"]
+    nginx -->|"otro nombre: default_server"| portada["/var/www/portada"]
+```
+
 ## Instalación
 
 ### Herramientas
@@ -192,6 +203,19 @@ $ ls blog-jekyll/_site
 404.html   about      assets     feed.xml   index.html jekyll
 ```
 
+### Nombres en /etc/hosts
+
+`docs.local` y `blog.local` no existen en ningún DNS, así que los apunto a mi propio Mac en `/etc/hosts`. Pongo también la línea de IPv6 (`::1`) para que macOS no tarde buscando los nombres `.local` en la red local.
+
+```text
+$ sudo sh -c 'printf "127.0.0.1 docs.local blog.local\n::1 docs.local blog.local\n" >> /etc/hosts'
+Password:
+
+$ tail -2 /etc/hosts
+127.0.0.1 docs.local blog.local
+::1 docs.local blog.local
+```
+
 ## Configuración
 
 ### Estructura del proyecto
@@ -202,6 +226,12 @@ nginx-para-todos/
 ├── .gitignore
 ├── README.md
 ├── compose.yaml
+├── blog-jekyll/            el blog
+│   ├── _config.yml
+│   ├── _posts/             las entradas
+│   ├── Gemfile
+│   ├── Gemfile.lock
+│   └── _site/              web generada, no se versiona
 ├── docs-zensical/          copia de monium/gitanddocs (commit 3e7a2df)
 │   ├── docs/               los textos en Markdown
 │   ├── pyproject.toml
@@ -209,8 +239,12 @@ nginx-para-todos/
 │   ├── zensical.toml
 │   └── site/               web generada, no se versiona
 └── nginx/
-    └── conf.d/
-        └── docs.conf
+    ├── conf.d/
+    │   ├── blog.conf
+    │   ├── default.conf
+    │   └── docs.conf
+    └── portada/
+        └── index.html
 ```
 
 ### site_url de Zensical
@@ -335,6 +369,108 @@ Cambios en el contenido:
 - Escribo dos entradas en `_posts/`: `2026-10-18-vuelvo-a-ver-al-barca.markdown` y `2026-10-18-diez-de-diez.markdown`. El nombre tiene que empezar por la fecha, si no Jekyll no las toma como entradas.
 - Paso a español la página "Sobre mí" (`about.markdown`, ahora en `/sobre-mi/`), el título de la lista de entradas (`list_title` en `index.markdown`) y la página 404.
 
+### Dos webs en el mismo NGINX
+
+Cada web tiene su bloque `server` en un archivo de `nginx/conf.d/`. Todos escuchan en el puerto 80 del contenedor y NGINX elige uno comparando la cabecera `Host` de la petición con el `server_name`.
+
+`nginx/conf.d/docs.conf` cambia `server_name localhost` por `docs.local` y tiene su propio log:
+
+```nginx
+# Documentación de gitanddocs generada con Zensical
+server {
+    listen 80;
+    server_name docs.local;
+
+    root /var/www/docs;
+    index index.html;
+    absolute_redirect off;
+
+    access_log /var/log/nginx/docs.access.log;
+    error_log /var/log/nginx/docs.error.log;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    error_page 404 /404.html;
+}
+```
+
+`nginx/conf.d/blog.conf` es igual pero con otro nombre, otra carpeta y otros logs:
+
+```nginx
+# Blog personal generado con Jekyll
+server {
+    listen 80;
+    server_name blog.local;
+
+    root /var/www/blog;
+    index index.html;
+    absolute_redirect off;
+
+    access_log /var/log/nginx/blog.access.log;
+    error_log /var/log/nginx/blog.error.log;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    error_page 404 /404.html;
+}
+```
+
+`nginx/conf.d/default.conf` es el servidor por defecto. `default_server` hace que responda él cuando el nombre no coincide con ningún `server_name`, por ejemplo al entrar por `localhost` o por la IP. Sirve una portada con enlaces a las dos webs (`nginx/portada/index.html`):
+
+```nginx
+# Servidor por defecto: responde cuando el nombre no es docs.local ni blog.local
+server {
+    listen 80 default_server;
+    server_name _;
+
+    root /var/www/portada;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
+```
+
+En `compose.yaml` comparto con el contenedor las dos carpetas nuevas:
+
+```yaml
+      # el blog que genera jekyll
+      - ./blog-jekyll/_site:/var/www/blog:ro
+      # la portada del servidor por defecto
+      - ./nginx/portada:/var/www/portada:ro
+```
+
+Y el `site_url` de la documentación pasa a ser su nueva dirección:
+
+```toml
+site_url = "http://docs.local:8080/"
+```
+
+Vuelvo a generar la documentación y recreo el contenedor para que monte las carpetas nuevas:
+
+```text
+$ cd docs-zensical
+$ uv run zensical build
+Build started
+[...]
+4 issues found
+Build finished in 0.20s
+$ cd ..
+
+$ docker compose up -d
+[+] up 1/1
+ ✔ Container nginx-para-todos Started
+
+$ docker compose exec nginx nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+```
+
 ## Comprobación
 
 ### Fase 1
@@ -388,6 +524,59 @@ La CI pasa en la PR de la fase 1:
 $ gh pr checks 4
 comprobar	pass	23s	https://github.com/diegoalegil/nginx-para-todos/actions/runs/39151396787/job/117745610815
 ```
+
+### Fase 2
+
+En la fase 2 la documentación ya no está en `localhost`, sino en `docs.local`. Cada web responde por su nombre con `200 OK`:
+
+```text
+$ curl -I http://docs.local:8080/
+HTTP/1.1 200 OK
+Server: nginx/1.30.6
+Date: Sun, 18 Oct 2026 20:51:12 GMT
+Content-Type: text/html
+Content-Length: 40776
+Last-Modified: Sun, 18 Oct 2026 20:50:50 GMT
+Connection: keep-alive
+ETag: "6ad5312a-9f48"
+Accept-Ranges: bytes
+
+$ curl -I http://blog.local:8080/
+HTTP/1.1 200 OK
+Server: nginx/1.30.6
+Date: Sun, 18 Oct 2026 20:51:16 GMT
+Content-Type: text/html
+Content-Length: 4149
+Last-Modified: Sun, 18 Oct 2026 18:46:06 GMT
+Connection: keep-alive
+ETag: "6ad513ee-1035"
+Accept-Ranges: bytes
+```
+
+La misma IP y el mismo puerto dan una web distinta según la cabecera `Host`. Con `-H` la pongo a mano y saco el título de la página que responde:
+
+```text
+$ curl -s -H "Host: docs.local" http://127.0.0.1:8080/ | grep -o "<title>[^<]*</title>" | head -1
+<title>Get started - Documentation</title>
+
+$ curl -s -H "Host: blog.local" http://127.0.0.1:8080/ | grep -o "<title>[^<]*</title>" | head -1
+<title>Mi temporada culé | Blog personal donde cuento cómo estoy viviendo la temporada 2026-2027 del Barça.</title>
+
+$ curl -s -H "Host: otro.local" http://127.0.0.1:8080/ | grep -o "<title>[^<]*</title>" | head -1
+<title>NGINX para todos</title>
+```
+
+Con un nombre que no está configurado (`otro.local`) responde el servidor por defecto con la portada.
+
+Cada web escribe en su propio log. Las peticiones al blog solo aparecen en `blog.access.log`. La IP `192.168.65.1` es la de la red interna de Docker Desktop, por donde llegan al contenedor las peticiones del Mac:
+
+```text
+$ docker compose exec nginx tail -n 3 /var/log/nginx/blog.access.log
+192.168.65.1 - - [18/Oct/2026:20:51:16 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/8.7.1"
+192.168.65.1 - - [18/Oct/2026:20:51:23 +0000] "GET / HTTP/1.1" 200 4149 "-" "curl/8.7.1"
+```
+
+En el navegador, http://docs.local:8080 muestra la documentación, http://blog.local:8080 el blog con sus dos entradas y http://localhost:8080 la portada con los enlaces a las dos.
 
 ## Problemas encontrados y solución
 

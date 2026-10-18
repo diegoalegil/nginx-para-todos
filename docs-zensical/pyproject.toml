@@ -1,0 +1,15 @@
+[project]
+name = "2dam-dpl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Test Verif", email = "verif@test.local" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "zensical>=0.0.65",
+]

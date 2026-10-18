@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  comprobar:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v7
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v10.3.0
+
+      - name: Generar la documentación con Zensical
+        working-directory: docs-zensical
+        run: |
+          uv sync --locked
+          uv run zensical build
+
+      - name: Comprobar la configuración de NGINX
+        run: docker compose run --rm nginx nginx -t
+
+      - name: Arrancar NGINX y probar la documentación
+        run: |
+          docker compose up -d
+          sleep 2
+          curl -fsS -o /dev/null http://localhost:8080/
+          curl -sI http://localhost:8080/markdown | grep -i "^location: /markdown/"
+          docker compose down

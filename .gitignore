@@ -1,0 +1,9 @@
+# archivos que crea macOS
+.DS_Store
+
+# entorno de python que crea uv
+.venv/
+
+# webs generadas, se vuelven a crear con zensical build y jekyll build
+site/
+_site/

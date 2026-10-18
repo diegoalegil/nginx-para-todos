@@ -1,0 +1,11 @@
+services:
+  nginx:
+    image: nginx:1.30
+    container_name: nginx-para-todos
+    ports:
+      - "8080:80"
+    volumes:
+      # mi configuración sustituye a la que trae la imagen
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      # la web que genera zensical
+      - ./docs-zensical/site:/var/www/docs:ro

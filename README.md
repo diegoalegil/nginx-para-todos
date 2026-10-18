@@ -335,6 +335,8 @@ $ docker compose exec nginx nginx -s reload
 
 `.github/workflows/ci.yml` se ejecuta en cada PR y en cada push a `main`. Genera la documentación, revisa la configuración con `nginx -t`, arranca NGINX y comprueba que responde y que la redirección mantiene el puerto.
 
+En la fase 2 la amplío: también genera el blog con el servicio `jekyll` y prueba las tres respuestas de NGINX cambiando la cabecera `Host` (la documentación con `docs.local`, el blog con `blog.local` y la portada sin nombre), además de la redirección de `docs.local`.
+
 ### El blog
 
 El blog se llama "Mi temporada culé" y trata de cómo estoy viviendo la temporada del Barça. Uso el tema minima, que es el que trae Jekyll.

@@ -9,3 +9,19 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       # la web que genera zensical
       - ./docs-zensical/site:/var/www/docs:ro
+
+  # solo para crear y generar el blog, no se queda encendido
+  jekyll:
+    image: ruby:3.4
+    working_dir: /srv/jekyll
+    volumes:
+      - ./blog-jekyll:/srv/jekyll
+      # las gemas se guardan aquí para no descargarlas cada vez
+      - gemas:/usr/local/bundle
+    environment:
+      JEKYLL_ENV: production
+    command: sh -c "bundle install && bundle exec jekyll build"
+    profiles: ["herramientas"]
+
+volumes:
+  gemas:

@@ -126,6 +126,72 @@ $ ls site
 
 Los avisos de `anchor does not exist` están explicados en [Problemas encontrados](#problemas-encontrados-y-solución).
 
+### Crear el blog con Jekyll
+
+Jekyll está hecho en Ruby. Para no instalar Ruby en el Mac lo uso dentro de un contenedor con la imagen oficial `ruby:3.4`. Lo añado a `compose.yaml` como un segundo servicio:
+
+```yaml
+  # solo para crear y generar el blog, no se queda encendido
+  jekyll:
+    image: ruby:3.4
+    working_dir: /srv/jekyll
+    volumes:
+      - ./blog-jekyll:/srv/jekyll
+      # las gemas se guardan aquí para no descargarlas cada vez
+      - gemas:/usr/local/bundle
+    environment:
+      JEKYLL_ENV: production
+    command: sh -c "bundle install && bundle exec jekyll build"
+    profiles: ["herramientas"]
+
+volumes:
+  gemas:
+```
+
+- `profiles: ["herramientas"]` hace que no arranque con `docker compose up`. Solo se usa cuando lo llamo con `docker compose run`.
+- El volumen `gemas` guarda las gemas de Ruby para no descargarlas cada vez.
+- `JEKYLL_ENV: production` genera el blog en modo producción.
+
+Creo el blog con Jekyll 4.4.1 dentro del contenedor. `jekyll new` usa el tema minima por defecto:
+
+```text
+$ mkdir blog-jekyll
+$ docker compose run --rm jekyll sh -c "gem install jekyll -v 4.4.1 && jekyll new . --force"
+[...]
+Successfully installed jekyll-4.4.1
+29 gems installed
+[...]
+  Bundler: Bundle complete! 7 Gemfile dependencies, 39 gems now installed.
+  Bundler: Use `bundle info [gemname]` to see where a bundled gem is installed.
+New jekyll site installed in /srv/jekyll.
+
+$ ls -a blog-jekyll
+_config.yml    _posts         .              ..             .gitignore     404.html       about.markdown Gemfile        Gemfile.lock   index.markdown
+```
+
+Genero el blog. Sin más argumentos el contenedor ejecuta su `command`, que instala las gemas y hace `jekyll build`:
+
+```text
+$ docker compose run --rm jekyll
+Bundle complete! 7 Gemfile dependencies, 39 gems now installed.
+Use `bundle info [gemname]` to see where a bundled gem is installed.
+Configuration file: /srv/jekyll/_config.yml
+            Source: /srv/jekyll
+       Destination: /srv/jekyll/_site
+ Incremental build: disabled. Enable with --incremental
+      Generating...
+       Jekyll Feed: Generating feed for posts
+Deprecation Warning [import]: Sass @import rules are deprecated and will be removed in Dart Sass 3.0.0.
+[...]
+Warning: 6 repetitive deprecation warnings omitted.
+Run in verbose mode to see all warnings.
+                    done in 0.193 seconds.
+ Auto-regeneration: disabled. Use --watch to enable.
+
+$ ls blog-jekyll/_site
+404.html   about      assets     feed.xml   index.html jekyll
+```
+
 ## Configuración
 
 ### Estructura del proyecto
@@ -298,6 +364,10 @@ comprobar	pass	23s	https://github.com/diegoalegil/nginx-para-todos/actions/runs/
 **La redirección perdía el puerto.** Al pedir `http://localhost:8080/markdown` sin la barra final, NGINX respondía `301` con `Location: http://localhost/markdown/`. Dentro del contenedor escucha en el 80, así que escribía la dirección sin el `:8080` y el navegador acababa en el puerto 80 del Mac, donde no hay nada. Lo arreglo con `absolute_redirect off`, que hace la redirección relativa (`Location: /markdown/`).
 
 **El sitemap apuntaba a example.com.** El `site_url` de `zensical.toml` venía con `https://www.example.com/`. Lo cambio por `http://localhost:8080/`.
+
+**`no such service: jekyll`.** Me salió la primera vez que lancé `docker compose run --rm jekyll`, porque el servicio `jekyll` todavía no estaba guardado en `compose.yaml`. Al añadirlo, el mismo comando funciona.
+
+**Avisos `Deprecation Warning` al generar el blog.** Vienen del tema minima 2.5.2, que usa `@import` y funciones de Sass como `lighten()` que las versiones nuevas de Sass marcan como obsoletas. Son avisos del tema, no errores, y el blog se genera bien.
 
 ## Repositorio remoto
 

@@ -301,6 +301,40 @@ $ docker compose exec nginx nginx -s reload
 
 `.github/workflows/ci.yml` se ejecuta en cada PR y en cada push a `main`. Genera la documentación, revisa la configuración con `nginx -t`, arranca NGINX y comprueba que responde y que la redirección mantiene el puerto.
 
+### El blog
+
+El blog se llama "Mi temporada culé" y trata de cómo estoy viviendo la temporada del Barça. Uso el tema minima, que es el que trae Jekyll.
+
+`blog-jekyll/_config.yml`:
+
+```yaml
+# Configuración del blog. Si cambio algo aquí hay que volver a generar el blog.
+title: Mi temporada culé
+description: >-
+  Blog personal donde cuento cómo estoy viviendo la temporada 2026-2027 del Barça.
+lang: es
+baseurl: ""
+url: "http://blog.local:8080"
+github_username: diegoalegil
+
+minima:
+  date_format: "%d/%m/%Y"
+
+theme: minima
+plugins:
+  - jekyll-feed
+```
+
+- `url` es la dirección donde va a estar el blog. Jekyll la usa en el feed y en las etiquetas para buscadores.
+- `lang: es` pone el idioma de las páginas en español.
+- `date_format` muestra las fechas como 18/10/2026.
+
+Cambios en el contenido:
+
+- Borro la entrada de ejemplo `welcome-to-jekyll` con `git rm`.
+- Escribo dos entradas en `_posts/`: `2026-10-18-vuelvo-a-ver-al-barca.markdown` y `2026-10-18-diez-de-diez.markdown`. El nombre tiene que empezar por la fecha, si no Jekyll no las toma como entradas.
+- Paso a español la página "Sobre mí" (`about.markdown`, ahora en `/sobre-mi/`), el título de la lista de entradas (`list_title` en `index.markdown`) y la página 404.
+
 ## Comprobación
 
 ### Fase 1
